@@ -1,0 +1,7 @@
+# Ignore logs directory
+logs/
+
+# Ignore snapshot file and any variations
+last_snapshot.json*
+
+settings-dev.ps1
