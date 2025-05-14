@@ -1,8 +1,6 @@
 # CONFIGURATION
 $WatchedPathsDefault = @("Z:\DefaultPath1", "Z:\DefaultPath2")
 
-# CONFIGURATION
-#$WatchedPaths = @("Z:\Path1", "Z:\Path2")  # Change to your mapped network paths
 $IntervalSeconds = 10                    # 5 minutes
 $StateFile = "$PSScriptRoot\last_snapshot.json"
 $LogDir = "$PSScriptRoot\logs"
