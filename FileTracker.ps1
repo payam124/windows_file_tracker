@@ -89,37 +89,44 @@ function Log-Changes {
     $logFile = Join-Path $LogDir "$logTime.log"
     $logContent = @()
 
-    # Track moved files by hash to avoid duplication
-    $movedHashes = @{}
+    # Track confirmed moved hashes to avoid double-reporting
+    $movedPairs = @{}
 
-    # Detect added files (and maybe moved)
-    foreach ($addedPath in $currByPath.Keys | Where-Object { -not $prevByPath.ContainsKey($_) }) {
-        $entry = $currByPath[$addedPath]
-        $hash = $entry.Hash
-        if ($prevByHash.ContainsKey($hash) -and -not $movedHashes.ContainsKey($hash)) {
-            $from = $prevByHash[$hash][0]
-            $fromEntry = $prevByPath[$from]
-            $logContent += "[Moved] FROM: '$from' | Owner: $($fromEntry.Owner) | Created: $($fromEntry.Created) | Modified: $($fromEntry.LastModified)"
-            $logContent += "[Moved]   TO: '$($entry.Path)' | Owner: $($entry.Owner) | Created: $($entry.Created) | Modified: $($entry.LastModified)"
-            $movedHashes[$hash] = $true
-        } else {
-            $logContent += "[Added] '$($entry.Path)' | Owner: $($entry.Owner) | Created: $($entry.Created) | Modified: $($entry.LastModified)"
+    # Identify true moves: file hash existed in previous snapshot but changed path
+    foreach ($hash in $prevByHash.Keys) {
+        if ($currByHash.ContainsKey($hash)) {
+            $oldPaths = $prevByHash[$hash]
+            $newPaths = $currByHash[$hash]
+
+            foreach ($oldPath in $oldPaths) {
+                if (-not ($newPaths -contains $oldPath)) {
+                    # If a file with same hash exists at a new path AND wasn't already in the previous snapshot
+                    foreach ($newPath in $newPaths) {
+                        if (-not ($prevByPath.ContainsKey($newPath))) {
+                            $from = $prevByPath[$oldPath]
+                            $to = $currByPath[$newPath]
+                            $logContent += "[Moved] FROM: '$($from.Path)' | Owner: $($from.Owner) | Created: $($from.Created) | Modified: $($from.LastModified)"
+                            $logContent += "[Moved]   TO: '$($to.Path)' | Owner: $($to.Owner) | Created: $($to.Created) | Modified: $($to.LastModified)"
+                            $movedPairs[$oldPath] = $true
+                            $movedPairs[$newPath] = $true
+                            break
+                        }
+                    }
+                }
+            }
         }
     }
 
-    # Detect removed files (and maybe moved — skip already handled)
-    foreach ($removedPath in $prevByPath.Keys | Where-Object { -not $currByPath.ContainsKey($_) }) {
-        $entry = $prevByPath[$removedPath]
-        $hash = $entry.Hash
-        if ($currByHash.ContainsKey($hash) -and -not $movedHashes.ContainsKey($hash)) {
-            $to = $currByHash[$hash][0]
-            $toEntry = $currByPath[$to]
-            $logContent += "[Moved] FROM: '$($entry.Path)' | Owner: $($entry.Owner) | Created: $($entry.Created) | Modified: $($entry.LastModified)"
-            $logContent += "[Moved]   TO: '$to' | Owner: $($toEntry.Owner) | Created: $($toEntry.Created) | Modified: $($toEntry.LastModified)"
-            $movedHashes[$hash] = $true
-        } elseif (-not $movedHashes.ContainsKey($hash)) {
-            $logContent += "[Removed] '$($entry.Path)' | Owner: $($entry.Owner) | Created: $($entry.Created) | Modified: $($entry.LastModified)"
-        }
+    # Added
+    foreach ($addedPath in $currByPath.Keys | Where-Object { -not $prevByPath.ContainsKey($_) -and -not $movedPairs.ContainsKey($_) }) {
+        $f = $currByPath[$addedPath]
+        $logContent += "[Added] '$($f.Path)' | Owner: $($f.Owner) | Created: $($f.Created) | Modified: $($f.LastModified)"
+    }
+
+    # Removed
+    foreach ($removedPath in $prevByPath.Keys | Where-Object { -not $currByPath.ContainsKey($_) -and -not $movedPairs.ContainsKey($_) }) {
+        $f = $prevByPath[$removedPath]
+        $logContent += "[Removed] '$($f.Path)' | Owner: $($f.Owner) | Created: $($f.Created) | Modified: $($f.LastModified)"
     }
 
     if ($logContent.Count -gt 0) {
@@ -130,6 +137,24 @@ function Log-Changes {
         $currentSnapshot | ConvertTo-Json -Depth 5 | Add-Content $logFile
     } else {
         Write-Host "No changes detected."
+    }
+
+    # === Detect and log duplicate files by hash ===
+    $hashGroups = $currentSnapshot | Group-Object -Property Hash | Where-Object { $_.Count -gt 1 }
+
+    if ($hashGroups.Count -gt 0) {
+        "`n[Duplicate Files by Hash Detected]" | Add-Content $logFile
+        Write-Host "`n[Duplicate Files by Hash Detected]"
+
+        foreach ($group in $hashGroups) {
+            "`nDuplicate Hash: $($group.Name)" | Add-Content $logFile
+            Write-Host "`nDuplicate Hash: $($group.Name)"
+            foreach ($file in $group.Group) {
+                $line = " - $($file.Path) | Owner: $($file.Owner) | Created: $($file.Created) | Modified: $($file.LastModified)"
+                $line | Add-Content $logFile
+                Write-Host $line
+            }
+        }
     }
 }
 
