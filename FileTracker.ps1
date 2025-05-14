@@ -128,6 +128,42 @@ function Log-Changes {
         $f = $prevByPath[$removedPath]
         $logContent += "[Removed] '$($f.Path)' | Owner: $($f.Owner) | Created: $($f.Created) | Modified: $($f.LastModified)"
     }
+    
+    # === Detect file content or metadata changes ===
+    foreach ($path in $prevByPath.Keys | Where-Object { $currByPath.ContainsKey($_) -and -not $movedPairs.ContainsKey($_) }) {
+        $old = $prevByPath[$path]
+        $new = $currByPath[$path]
+
+        $changes = @()
+
+        if ($old.Owner -ne $new.Owner) {
+            $changes += "Owner: $($old.Owner) → $($new.Owner)"
+        }
+        if ($old.Created -ne $new.Created) {
+            $changes += "Created: $($old.Created) → $($new.Created)"
+        }
+        if ($old.LastModified -ne $new.LastModified) {
+            $changes += "Modified: $($old.LastModified) → $($new.LastModified)"
+        }
+
+        if ($changes.Count -gt 0) {
+            try {
+                $actualHash = (Get-FileHash -Path $new.Path -Algorithm MD5).Hash
+                if ($actualHash -ne $old.Hash) {
+                    $logContent += "[Changed] '$($new.Path)'"
+                    foreach ($c in $changes) {
+                        $logContent += "          $c"
+                    }
+                    $logContent += "          Hash: $($old.Hash) → $actualHash"
+                }
+            } catch {
+                $logContent += "[Changed] '$($new.Path)' - Metadata changed but unable to retrieve hash"
+                foreach ($c in $changes) {
+                    $logContent += "          $c"
+                }
+            }
+        }
+    }
 
     if ($logContent.Count -gt 0) {
         Write-Host "Changes detected! Logging to $logFile`n"
